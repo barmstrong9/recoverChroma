@@ -1,19 +1,20 @@
 package main
 
 import (
-	"github.com/alecthomas/chroma/styles"
-	"github.com/alecthomas/chroma/lexers"
-	"github.com/alecthomas/chroma/formatters/html"
-	"strconv"
-	"net/url"
 	"bytes"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"runtime/debug"
+	"strconv"
 	"strings"
+
+	"github.com/alecthomas/chroma/formatters/html"
+	"github.com/alecthomas/chroma/lexers"
+	"github.com/alecthomas/chroma/styles"
 )
 
 func main() {
@@ -50,13 +51,12 @@ func sourceCodeHandler(w http.ResponseWriter, r *http.Request) {
 	lexer := lexers.Get("go")
 	iterator, err := lexer.Tokenise(nil, b.String())
 	style := styles.Get("dracula")
-	if style == nil{
+	if style == nil {
 		style = styles.Fallback
 	}
 	formatter := html.New(html.TabWidth(2), html.WithLineNumbers(), html.HighlightLines(lines))
 	w.Header().Set("Content-Type", "text/html")
-	formatter.Format(w, style, iterator) 
-	//_ = quick.Highlight(w, b.String(), "go", "html", "dracula")
+	formatter.Format(w, style, iterator)
 }
 
 func devMw(app http.Handler) http.HandlerFunc {
@@ -105,7 +105,7 @@ func makeLinks(stack string) string {
 			}
 		}
 		var lineStr strings.Builder
-		for i := len(file)+2; i < len(line); i++{
+		for i := len(file) + 2; i < len(line); i++ {
 			if line[i] < '0' || line[i] > '9' {
 				break
 			}
