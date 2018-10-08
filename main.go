@@ -1,10 +1,19 @@
 package main
 
 import (
+	"github.com/alecthomas/chroma/styles"
+	"github.com/alecthomas/chroma/lexers"
+	"github.com/alecthomas/chroma/formatters/html"
+	"strconv"
+	"net/url"
+	"bytes"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"os"
 	"runtime/debug"
+	"strings"
 )
 
 func main() {
@@ -12,7 +21,42 @@ func main() {
 	mux.HandleFunc("/panic/", panicDemo)
 	mux.HandleFunc("/panic-after/", panicAfterDemo)
 	mux.HandleFunc("/", hello)
-	log.Fatal(http.ListenAndServe(":3000", devMw(mux)))
+	mux.HandleFunc("/debug/", sourceCodeHandler)
+	log.Fatal(http.ListenAndServe(":4000", devMw(mux)))
+}
+
+func sourceCodeHandler(w http.ResponseWriter, r *http.Request) {
+	path := r.FormValue("path")
+	lineStr := r.FormValue("line")
+	line, err := strconv.Atoi(lineStr)
+	if err != nil {
+		line = -1
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	b := bytes.NewBuffer(nil)
+	_, err = io.Copy(b, file)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var lines [][2]int
+	if line > 0 {
+		lines = append(lines, [2]int{line, line})
+	}
+	lexer := lexers.Get("go")
+	iterator, err := lexer.Tokenise(nil, b.String())
+	style := styles.Get("dracula")
+	if style == nil{
+		style = styles.Fallback
+	}
+	formatter := html.New(html.TabWidth(2), html.WithLineNumbers(), html.HighlightLines(lines))
+	w.Header().Set("Content-Type", "text/html")
+	formatter.Format(w, style, iterator) 
+	//_ = quick.Highlight(w, b.String(), "go", "html", "dracula")
 }
 
 func devMw(app http.Handler) http.HandlerFunc {
@@ -23,7 +67,7 @@ func devMw(app http.Handler) http.HandlerFunc {
 				stack := debug.Stack()
 				log.Println(string(stack))
 				w.WriteHeader(http.StatusInternalServerError)
-				fmt.Fprintf(w, "<h1>panic: %v</h1><pre>%s</pre>", err, string(stack))
+				fmt.Fprintf(w, "<h1>panic: %v</h1><pre>%s</pre>", err, makeLinks(string(stack)))
 			}
 		}()
 		app.ServeHTTP(w, r)
@@ -45,4 +89,32 @@ func funcThatPanics() {
 
 func hello(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, "<h1>Hello!</h1>")
+}
+
+func makeLinks(stack string) string {
+	lines := strings.Split(stack, "\n")
+	for li, line := range lines {
+		if len(line) == 0 || line[0] != '\t' {
+			continue
+		}
+		file := ""
+		for i, ch := range line {
+			if ch == ':' {
+				file = line[1:i]
+				break
+			}
+		}
+		var lineStr strings.Builder
+		for i := len(file)+2; i < len(line); i++{
+			if line[i] < '0' || line[i] > '9' {
+				break
+			}
+			lineStr.WriteByte(line[i])
+		}
+		v := url.Values{}
+		v.Set("path", file)
+		v.Set("line", lineStr.String())
+		lines[li] = "\t<a href=\"/debug/?" + v.Encode() + "\">" + file + ":" + lineStr.String() + "</a>" + line[len(file)+2+len(lineStr.String()):]
+	}
+	return strings.Join(lines, "\n")
 }
